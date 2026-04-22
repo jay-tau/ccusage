@@ -111,15 +111,13 @@ export const dailyCommand = define({
 				cacheWriteTokens += event.cacheWriteTokens;
 				premiumRequests += event.premiumRequestCost;
 
-				if (pricingMode === 'api') {
-					const cost = await pricingSource.calculateCost(event.model, {
-						inputTokens: event.inputTokens,
-						outputTokens: event.outputTokens,
-						cacheReadTokens: event.cacheReadTokens,
-						cacheWriteTokens: event.cacheWriteTokens,
-					});
-					apiCostUSD += cost;
-				}
+				const cost = await pricingSource.calculateCost(event.model, {
+					inputTokens: event.inputTokens,
+					outputTokens: event.outputTokens,
+					cacheReadTokens: event.cacheReadTokens,
+					cacheWriteTokens: event.cacheWriteTokens,
+				});
+				apiCostUSD += cost;
 				modelsSet.add(event.model);
 			}
 
