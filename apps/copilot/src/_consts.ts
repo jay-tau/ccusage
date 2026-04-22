@@ -40,3 +40,14 @@ export const WORKSPACE_FILENAME = 'workspace.yaml';
  * Million constant for pricing calculations
  */
 export const MILLION = 1_000_000;
+
+/**
+ * Cost per premium request in USD (GitHub Copilot overage rate)
+ */
+export const PREMIUM_REQUEST_COST_USD = 0.04;
+
+/**
+ * Available pricing modes
+ */
+export const PRICING_MODES = ['premium', 'api'] as const;
+export type PricingMode = (typeof PRICING_MODES)[number];

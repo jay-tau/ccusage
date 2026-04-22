@@ -19,6 +19,27 @@ function toPerMillion(value: number | undefined, fallback?: number): number {
 	return perToken * MILLION;
 }
 
+/**
+ * Normalize Copilot CLI model names to LiteLLM format.
+ *
+ * Copilot uses dot-notation (claude-opus-4.6) while LiteLLM uses
+ * dash-notation (claude-opus-4-6). Also strips variant suffixes
+ * like "-1m" that don't have separate LiteLLM entries.
+ */
+export function normalizeCopilotModelName(model: string): string {
+	// Strip known variant suffixes (e.g., "-1m" for extended context)
+	let normalized = model.replace(/-1m$/i, '');
+
+	// For Claude models: convert dots to dashes in version numbers
+	// e.g., "claude-opus-4.6" → "claude-opus-4-6"
+	// But NOT for GPT models where dots are standard (gpt-5.4 works as-is)
+	if (normalized.startsWith('claude-')) {
+		normalized = normalized.replace(/(\d+)\.(\d+)/g, '$1-$2');
+	}
+
+	return normalized;
+}
+
 export type CopilotPricingSourceOptions = {
 	offline?: boolean;
 	offlineLoader?: () => Promise<Record<string, LiteLLMModelPricing>>;
@@ -43,14 +64,17 @@ export class CopilotPricingSource implements PricingSource, Disposable {
 	}
 
 	async getPricing(model: string): Promise<ModelPricing> {
-		const directLookup = await this.fetcher.getModelPricing(model);
+		const normalized = normalizeCopilotModelName(model);
+		const directLookup = await this.fetcher.getModelPricing(normalized);
 		if (Result.isFailure(directLookup)) {
 			throw directLookup.error;
 		}
 
 		const pricing = directLookup.value;
 		if (pricing == null) {
-			logger.warn(`Pricing not found for model ${model}; defaulting to zero-cost pricing.`);
+			logger.warn(
+				`Pricing not found for model ${model} (normalized: ${normalized}); defaulting to zero-cost pricing.`,
+			);
 			return ZERO_MODEL_PRICING;
 		}
 
@@ -77,6 +101,7 @@ export class CopilotPricingSource implements PricingSource, Disposable {
 			cacheReadTokens?: number;
 		},
 	): Promise<number> {
+		const normalized = normalizeCopilotModelName(model);
 		const result = await this.fetcher.calculateCostFromTokens(
 			{
 				input_tokens: tokens.inputTokens,
@@ -84,11 +109,14 @@ export class CopilotPricingSource implements PricingSource, Disposable {
 				cache_creation_input_tokens: tokens.cacheWriteTokens,
 				cache_read_input_tokens: tokens.cacheReadTokens,
 			},
-			model,
+			normalized,
 		);
 
 		if (Result.isFailure(result)) {
-			logger.warn(`Failed to calculate cost for model ${model}:`, result.error);
+			logger.warn(
+				`Failed to calculate cost for model ${model} (normalized: ${normalized}):`,
+				result.error,
+			);
 			return 0;
 		}
 
@@ -97,12 +125,34 @@ export class CopilotPricingSource implements PricingSource, Disposable {
 }
 
 if (import.meta.vitest != null) {
+	describe('normalizeCopilotModelName', () => {
+		it('converts dots to dashes for Claude models', () => {
+			expect(normalizeCopilotModelName('claude-opus-4.6')).toBe('claude-opus-4-6');
+			expect(normalizeCopilotModelName('claude-sonnet-4.5')).toBe('claude-sonnet-4-5');
+			expect(normalizeCopilotModelName('claude-haiku-4.5')).toBe('claude-haiku-4-5');
+		});
+
+		it('strips -1m variant suffix', () => {
+			expect(normalizeCopilotModelName('claude-opus-4.6-1m')).toBe('claude-opus-4-6');
+		});
+
+		it('preserves GPT model names (dots are standard)', () => {
+			expect(normalizeCopilotModelName('gpt-5.4')).toBe('gpt-5.4');
+			expect(normalizeCopilotModelName('gpt-5.2')).toBe('gpt-5.2');
+			expect(normalizeCopilotModelName('gpt-5.1')).toBe('gpt-5.1');
+		});
+
+		it('passes through unknown models unchanged', () => {
+			expect(normalizeCopilotModelName('goldeneye')).toBe('goldeneye');
+		});
+	});
+
 	describe('CopilotPricingSource', () => {
 		it('converts LiteLLM pricing to per-million costs', async () => {
 			using source = new CopilotPricingSource({
 				offline: true,
 				offlineLoader: async () => ({
-					'claude-opus-4.6-1m': {
+					'claude-opus-4-6': {
 						input_cost_per_token: 1e-6,
 						output_cost_per_token: 5e-6,
 						cache_read_input_token_cost: 1e-7,
@@ -111,18 +161,35 @@ if (import.meta.vitest != null) {
 				}),
 			});
 
-			const pricing = await source.getPricing('claude-opus-4.6-1m');
+			// Pass the Copilot model name — normalization should resolve it
+			const pricing = await source.getPricing('claude-opus-4.6');
 			expect(pricing.inputCostPerMToken).toBeCloseTo(1);
 			expect(pricing.outputCostPerMToken).toBeCloseTo(5);
 			expect(pricing.cachedInputCostPerMToken).toBeCloseTo(0.1);
 			expect(pricing.cacheCreationCostPerMToken).toBeCloseTo(1.25);
 		});
 
-		it('calculates cost from tokens', async () => {
+		it('resolves -1m variant to base model pricing', async () => {
 			using source = new CopilotPricingSource({
 				offline: true,
 				offlineLoader: async () => ({
-					'claude-opus-4.6-1m': {
+					'claude-opus-4-6': {
+						input_cost_per_token: 5e-6,
+						output_cost_per_token: 2.5e-5,
+					},
+				}),
+			});
+
+			const pricing = await source.getPricing('claude-opus-4.6-1m');
+			expect(pricing.inputCostPerMToken).toBeCloseTo(5);
+			expect(pricing.outputCostPerMToken).toBeCloseTo(25);
+		});
+
+		it('calculates cost from tokens with normalized model name', async () => {
+			using source = new CopilotPricingSource({
+				offline: true,
+				offlineLoader: async () => ({
+					'claude-opus-4-6': {
 						input_cost_per_token: 1e-6,
 						output_cost_per_token: 5e-6,
 						cache_read_input_token_cost: 1e-7,
@@ -131,7 +198,7 @@ if (import.meta.vitest != null) {
 				}),
 			});
 
-			const cost = await source.calculateCost('claude-opus-4.6-1m', {
+			const cost = await source.calculateCost('claude-opus-4.6', {
 				inputTokens: 1000,
 				outputTokens: 500,
 				cacheReadTokens: 200,
