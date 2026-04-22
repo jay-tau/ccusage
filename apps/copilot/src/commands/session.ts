@@ -12,6 +12,7 @@ import { define } from 'gunshi';
 import pc from 'picocolors';
 import { PREMIUM_REQUEST_COST_USD } from '../_consts.ts';
 import { loadCopilotUsageEvents } from '../data-loader.ts';
+import { logger } from '../logger.ts';
 
 import { CopilotPricingSource } from '../pricing.ts';
 
@@ -52,7 +53,16 @@ export const sessionCommand = define({
 	},
 	async run(ctx) {
 		const jsonOutput = Boolean(ctx.values.json);
-		const pricingMode = (ctx.values.mode ?? 'premium') as PricingMode;
+		const modeValue = ctx.values.mode ?? 'premium';
+		if (modeValue !== 'premium' && modeValue !== 'api') {
+			console.error(`Invalid mode "${modeValue}". Use "premium" or "api".`);
+			return;
+		}
+		const pricingMode: PricingMode = modeValue;
+
+		if (jsonOutput) {
+			logger.level = 0;
+		}
 
 		const { events, sessions } = await loadCopilotUsageEvents();
 
@@ -118,7 +128,7 @@ export const sessionCommand = define({
 				}
 			}
 
-			const totalTokens = inputTokens + outputTokens;
+			const totalTokens = inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens;
 			const sessionMeta = sessions.get(sessionId);
 
 			sessionData.push({
