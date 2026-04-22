@@ -1,5 +1,6 @@
 import type { PricingMode } from '../_consts.ts';
 import type { TokenUsageEvent } from '../_types.ts';
+import process from 'node:process';
 import {
 	addEmptySeparatorRow,
 	formatCurrency,
@@ -56,6 +57,7 @@ export const sessionCommand = define({
 		const modeValue = ctx.values.mode ?? 'premium';
 		if (modeValue !== 'premium' && modeValue !== 'api') {
 			console.error(`Invalid mode "${modeValue}". Use "premium" or "api".`);
+			process.exitCode = 1;
 			return;
 		}
 		const pricingMode: PricingMode = modeValue;

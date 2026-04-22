@@ -195,7 +195,12 @@ function extractUsageEvents(sessionId: string, event: ParsedEvent): TokenUsageEv
 		const cacheReadTokens = usage.cacheReadTokens ?? 0;
 		const cacheWriteTokens = usage.cacheWriteTokens ?? 0;
 
-		if (inputTokens === 0 && outputTokens === 0) {
+		if (
+			inputTokens === 0 &&
+			outputTokens === 0 &&
+			cacheReadTokens === 0 &&
+			cacheWriteTokens === 0
+		) {
 			continue;
 		}
 
